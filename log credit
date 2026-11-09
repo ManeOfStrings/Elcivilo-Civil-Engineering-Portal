@@ -1,0 +1,2 @@
+Visit http://localhost:3000/ for the Public Student Portal.
+Visit http://localhost:3000/admin/login for the Secure Admin Dashboard (use the one-click demo credentials admin@civilportal.edu / admin123 or your Supabase credentials).

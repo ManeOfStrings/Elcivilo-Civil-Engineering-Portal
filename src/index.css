@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased text-concrete-900 bg-concrete-100 dark:text-concrete-100 dark:bg-concrete-950 font-sans;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading tracking-tight;
+  }
+}
+
+/* Custom Blueprint Drafting Grid patterns */
+.bg-blueprint-grid {
+  background-size: 24px 24px;
+  background-image: 
+    linear-gradient(to right, rgba(22, 75, 120, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(22, 75, 120, 0.08) 1px, transparent 1px);
+}
+
+.dark .bg-blueprint-grid {
+  background-size: 24px 24px;
+  background-image: 
+    linear-gradient(to right, rgba(82, 151, 207, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(82, 151, 207, 0.1) 1px, transparent 1px);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(136, 145, 150, 0.35);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(40, 120, 168, 0.6);
+}
+
+/* Modern Glowing & Glassmorphic Utilities */
+@layer utilities {
+  .glass-card {
+    @apply bg-white/80 dark:bg-concrete-900/80 backdrop-blur-xl border border-concrete-200/80 dark:border-concrete-800/80 shadow-sm transition-all duration-300;
+  }
+  
+  .glass-card-hover {
+    @apply hover:border-blueprint-400 dark:hover:border-blueprint-500 hover:shadow-xl hover:shadow-blueprint-900/10 dark:hover:shadow-cyan-500/10 hover:-translate-y-1;
+  }
+
+  .glow-cyan {
+    box-shadow: 0 0 25px -3px rgba(56, 189, 248, 0.25);
+  }
+
+  .glow-blueprint {
+    box-shadow: 0 0 30px -4px rgba(22, 75, 120, 0.22);
+  }
+
+  .glow-safety {
+    box-shadow: 0 0 25px -2px rgba(255, 212, 59, 0.35);
+  }
+
+  .text-glow {
+    text-shadow: 0 0 12px rgba(56, 189, 248, 0.45);
+  }
+
+  .text-glow-safety {
+    text-shadow: 0 0 14px rgba(255, 212, 59, 0.6);
+  }
+}
+
+/* Ambient Radial Mesh Gradients */
+.ambient-mesh {
+  background: 
+    radial-gradient(circle at 10% 20%, rgba(22, 75, 120, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(40, 120, 168, 0.07) 0%, transparent 40%),
+    radial-gradient(circle at 50% 50%, rgba(255, 212, 59, 0.03) 0%, transparent 50%);
+}
+
+.dark .ambient-mesh {
+  background: 
+    radial-gradient(circle at 15% 15%, rgba(40, 120, 168, 0.16) 0%, transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(56, 189, 248, 0.1) 0%, transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(255, 212, 59, 0.05) 0%, transparent 55%);
+}
+
+/* Pulsing radar ring */
+@keyframes radar-pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+}
+
+.animate-radar {
+  animation: radar-pulse 3s infinite ease-in-out;
+}
+
+
