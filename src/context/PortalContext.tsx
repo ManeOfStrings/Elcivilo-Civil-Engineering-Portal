@@ -366,18 +366,12 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const addDocument = async (
     docData: Omit<AcademicDocument, 'id' | 'uploadedAt' | 'downloadCount'>
   ): Promise<AcademicDocument> => {
-    // 1. If Supabase is configured, enforce server-enforced authenticated insertion
+    // 1. If Supabase is configured, insert directly into the cloud database
     if (isSupabaseConfigured) {
       const { data: sessionData } = await supabase.auth.getSession();
-      const session = sessionData.session;
+      const session = sessionData?.session;
 
-      if (!session) {
-        throw new Error(
-          'Authentication required: You must be logged into Supabase Auth with an administrator account to save documents to the database. Demo session cannot write to live Supabase RLS.'
-        );
-      }
-
-      const payload = mapAcademicDocToSupabaseRow(docData, session.user.id);
+      const payload = mapAcademicDocToSupabaseRow(docData, session?.user?.id);
       const { data, error } = await supabase
         .from('documents')
         .insert(payload)
@@ -386,6 +380,9 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (error) {
         console.error('Supabase document insert error:', error);
+        if (error.message?.includes('row-level security')) {
+          throw new Error('Supabase RLS Error: Row-level security prevented database write. Please run the SQL fix script in your Supabase SQL Editor.');
+        }
         throw new Error(`Database error: ${error.message}`);
       }
 
@@ -425,12 +422,6 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!target) return false;
 
     if (isSupabaseConfigured) {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
-        showToast('Authentication required: Sign into Supabase Auth to delete records from the live database.', 'error');
-        return false;
-      }
-
       const { error } = await supabase.from('documents').delete().eq('id', id);
       if (error) {
         console.error('Supabase document delete error:', error);

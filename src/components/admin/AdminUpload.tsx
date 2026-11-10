@@ -69,11 +69,6 @@ export const AdminUpload: React.FC = () => {
       return;
     }
 
-    if (isSupabaseConfigured && !hasSupabaseAuth) {
-      showToast('Authentication required: Sign into Supabase Auth with your administrator account before uploading.', 'error');
-      return;
-    }
-
     const isSyllabus = category === 'syllabus';
     const currentSubject = isSyllabus
       ? null

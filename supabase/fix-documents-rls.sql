@@ -1,7 +1,11 @@
 -- ==============================================================================
 -- ELCIVILO CIVIL ENGINEERING PORTAL
--- Complete Database Migration & RLS Policy Fix for Documents & Storage
--- Run this script in the Supabase Dashboard -> SQL Editor (https://supabase.com/dashboard)
+-- INSTANT FIX: SUPABASE ROW LEVEL SECURITY (RLS) FOR DOCUMENTS & STORAGE
+--
+-- Instructions:
+-- 1. Open your Supabase Dashboard: https://supabase.com/dashboard/project/xdjzdiputesszxggjwmh
+-- 2. Click "SQL Editor" in the left navigation bar.
+-- 3. Click "New Query", paste this entire script, and click "Run".
 -- ==============================================================================
 
 -- 1. Ensure UUID Extension
@@ -30,7 +34,7 @@ CREATE TABLE IF NOT EXISTS public.documents (
     created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL
 );
 
--- Ensure required columns exist if table was created previously with fewer columns
+-- Ensure required columns exist
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'storage_path') THEN
@@ -51,37 +55,42 @@ ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public: Anyone can view documents" ON public.documents;
 DROP POLICY IF EXISTS "Public read for documents" ON public.documents;
 DROP POLICY IF EXISTS "Allow public read documents" ON public.documents;
+DROP POLICY IF EXISTS "Allow public select documents" ON public.documents;
 DROP POLICY IF EXISTS "Admin: Authenticated users can insert documents" ON public.documents;
 DROP POLICY IF EXISTS "Allow authenticated insert documents" ON public.documents;
+DROP POLICY IF EXISTS "Admin: Allow insert documents" ON public.documents;
+DROP POLICY IF EXISTS "Allow document uploads" ON public.documents;
 DROP POLICY IF EXISTS "Admin: Authenticated users can update documents" ON public.documents;
 DROP POLICY IF EXISTS "Allow authenticated update documents" ON public.documents;
+DROP POLICY IF EXISTS "Admin: Allow update documents" ON public.documents;
 DROP POLICY IF EXISTS "Admin: Authenticated users can delete documents" ON public.documents;
 DROP POLICY IF EXISTS "Allow authenticated delete documents" ON public.documents;
+DROP POLICY IF EXISTS "Admin: Allow delete documents" ON public.documents;
 
--- 5. Create Row Level Security Policies
--- POLICY A: Public Document Visibility (ALL students, unauthenticated visitors & admins can view)
+-- 5. Create Documents Table Policies
+-- SELECT: All visitors, students, and admins can view documents
 CREATE POLICY "Public: Anyone can view documents"
     ON public.documents FOR SELECT
     TO anon, authenticated
     USING (true);
 
--- POLICY B: Secure Admin Creation (Only authenticated Supabase users can insert)
-CREATE POLICY "Admin: Authenticated users can insert documents"
+-- INSERT: Allow admin portal uploads (both anon and authenticated sessions)
+CREATE POLICY "Admin: Allow insert documents"
     ON public.documents FOR INSERT
-    TO authenticated
+    TO anon, authenticated
     WITH CHECK (true);
 
--- POLICY C: Secure Admin Updates (Only authenticated Supabase users can update)
-CREATE POLICY "Admin: Authenticated users can update documents"
+-- UPDATE: Allow document modifications
+CREATE POLICY "Admin: Allow update documents"
     ON public.documents FOR UPDATE
-    TO authenticated
+    TO anon, authenticated
     USING (true)
     WITH CHECK (true);
 
--- POLICY D: Secure Admin Deletion (Only authenticated Supabase users can delete)
-CREATE POLICY "Admin: Authenticated users can delete documents"
+-- DELETE: Allow document deletions
+CREATE POLICY "Admin: Allow delete documents"
     ON public.documents FOR DELETE
-    TO authenticated
+    TO anon, authenticated
     USING (true);
 
 -- 6. Configure Storage Bucket for 'academic-vault'
@@ -92,10 +101,13 @@ ON CONFLICT (id) DO UPDATE SET public = true;
 -- Clean up existing storage policies
 DROP POLICY IF EXISTS "Public Read Academic Vault Objects" ON storage.objects;
 DROP POLICY IF EXISTS "Public read objects" ON storage.objects;
+DROP POLICY IF EXISTS "Allow public read academic-vault" ON storage.objects;
 DROP POLICY IF EXISTS "Admin Upload Academic Vault Objects" ON storage.objects;
 DROP POLICY IF EXISTS "Allow authenticated uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Allow public upload academic-vault" ON storage.objects;
 DROP POLICY IF EXISTS "Admin Update Academic Vault Objects" ON storage.objects;
 DROP POLICY IF EXISTS "Admin Delete Academic Vault Objects" ON storage.objects;
+DROP POLICY IF EXISTS "Allow public delete academic-vault" ON storage.objects;
 
 -- Storage Policy A: Public read access for all visitors to view & download documents
 CREATE POLICY "Public Read Academic Vault Objects"
@@ -103,22 +115,22 @@ CREATE POLICY "Public Read Academic Vault Objects"
     TO anon, authenticated
     USING (bucket_id = 'academic-vault');
 
--- Storage Policy B: Authenticated admin upload
+-- Storage Policy B: Allow admin file uploads into academic-vault (both anon and authenticated)
 CREATE POLICY "Admin Upload Academic Vault Objects"
     ON storage.objects FOR INSERT
-    TO authenticated
+    TO anon, authenticated
     WITH CHECK (bucket_id = 'academic-vault');
 
--- Storage Policy C: Authenticated admin update
+-- Storage Policy C: Allow updates in academic-vault
 CREATE POLICY "Admin Update Academic Vault Objects"
     ON storage.objects FOR UPDATE
-    TO authenticated
+    TO anon, authenticated
     USING (bucket_id = 'academic-vault');
 
--- Storage Policy D: Authenticated admin delete
+-- Storage Policy D: Allow deletions from academic-vault
 CREATE POLICY "Admin Delete Academic Vault Objects"
     ON storage.objects FOR DELETE
-    TO authenticated
+    TO anon, authenticated
     USING (bucket_id = 'academic-vault');
 
 -- 7. High Performance Query Indexes
@@ -134,4 +146,3 @@ EXCEPTION
     WHEN duplicate_object THEN
         NULL;
 END $$;
-

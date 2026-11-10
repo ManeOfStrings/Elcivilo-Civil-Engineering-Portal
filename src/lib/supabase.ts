@@ -108,7 +108,11 @@ export function uploadAcademicFile(
         } else {
           try {
             const parsed = JSON.parse(xhr.responseText);
-            reject(new Error(parsed.message || parsed.error || `Upload failed (Status ${xhr.status})`));
+            let errMsg = parsed.message || parsed.error || `Upload failed (Status ${xhr.status})`;
+            if (errMsg.includes('row-level security') || parsed.code === 'AccessDenied' || parsed.statusCode === '403') {
+              errMsg = "Supabase Storage RLS Error: Storage policy blocked upload to 'academic-vault'. Please run the SQL fix script in your Supabase SQL Editor to allow uploads.";
+            }
+            reject(new Error(errMsg));
           } catch {
             reject(new Error(`Upload failed with status ${xhr.status}`));
           }
