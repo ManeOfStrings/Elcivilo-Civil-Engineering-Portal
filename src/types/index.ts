@@ -55,6 +55,7 @@ export interface AcademicDocument {
   uploadedAt: string;
   uploadedBy?: string;
   uploaderRole?: string;
+  storagePath?: string;
   downloadCount: number;
   viewsCount?: number;
   isBookmarked?: boolean;

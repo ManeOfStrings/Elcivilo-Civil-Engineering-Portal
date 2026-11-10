@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { storageService } from '../services/storageService';
 import { useAuth } from './AuthContext';
+import { supabase, isSupabaseConfigured, deleteAcademicFile } from '../lib/supabase';
 
 export interface ToastMessage {
   id: string;
@@ -119,6 +120,59 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Toasts state
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
+  // Synchronize documents from Supabase database if configured
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    let isMounted = true;
+
+    async function syncDocumentsFromSupabase() {
+      try {
+        const { data: dbDocs, error } = await supabase
+          .from('documents')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!error && dbDocs && dbDocs.length > 0 && isMounted) {
+          const mappedDocs: AcademicDocument[] = dbDocs.map((row: any) => ({
+            id: row.id,
+            title: row.title,
+            fileName: row.file_name || (row.storage_path ? row.storage_path.split('/').pop() : `${row.title}.pdf`),
+            description: row.description || '',
+            category: row.category as DocumentCategory,
+            semester: row.semester,
+            subjectId: row.subject_id || '',
+            subjectCode: row.subject_code,
+            subjectName: row.subject_name,
+            unit: row.unit,
+            examType: row.exam_type,
+            examYear: row.exam_year,
+            supplyCategory: row.supply_category,
+            fileUrl: row.file_url,
+            fileSize: row.file_size || 'Unknown',
+            fileType: (row.file_type || 'pdf').toLowerCase(),
+            storagePath: row.storage_path,
+            downloadCount: row.download_count || 0,
+            uploadedAt: row.created_at,
+            uploadedBy: 'Civil Faculty / Admin',
+            isBookmarked: false,
+          }));
+
+          setDocuments(mappedDocs);
+          storageService.saveDocuments(mappedDocs);
+        }
+      } catch (err) {
+        console.warn('Supabase document retrieval notice:', err);
+      }
+    }
+
+    syncDocumentsFromSupabase();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -225,9 +279,14 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const getDocumentsBySubject = (subjectId: string, category?: DocumentCategory): AcademicDocument[] => {
     const sub = getSubjectById(subjectId);
     return documents.filter((d) => {
-      const matchSubject = d.subjectId === subjectId || (sub && d.subjectCode === sub.code);
+      const matchSubject =
+        d.subjectId === subjectId ||
+        (sub && (
+          d.subjectId === sub.id ||
+          d.subjectCode.replace(/[\s-_]/g, '').toLowerCase() === sub.code.replace(/[\s-_]/g, '').toLowerCase()
+        ));
       const matchCat = !category || d.category === category;
-      return matchSubject && matchCat;
+      return Boolean(matchSubject && matchCat);
     });
   };
 
@@ -244,6 +303,44 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     storageService.addAuditLog('Uploaded Document', newDoc.title, user?.name || 'Admin', `Category: ${newDoc.category}`);
     setAuditLogs(storageService.getAuditLogs());
     showToast(`"${newDoc.title}" uploaded successfully!`, 'success');
+
+    // Persist to Supabase database if configured
+    if (isSupabaseConfigured) {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(newDoc.subjectId);
+      supabase
+        .from('documents')
+        .insert({
+          title: newDoc.title,
+          description: newDoc.description || null,
+          category: newDoc.category,
+          semester: newDoc.semester,
+          subject_id: isUuid ? newDoc.subjectId : null,
+          subject_code: newDoc.subjectCode,
+          subject_name: newDoc.subjectName,
+          unit: newDoc.unit || null,
+          exam_type: newDoc.examType || null,
+          exam_year: newDoc.examYear || null,
+          supply_category: newDoc.supplyCategory || null,
+          file_url: newDoc.fileUrl,
+          file_size: newDoc.fileSize,
+          file_type: (newDoc.fileType || 'PDF').toUpperCase(),
+          storage_path: newDoc.storagePath || null,
+          download_count: 0,
+        })
+        .select('id')
+        .then(({ data, error }) => {
+          if (error) {
+            console.warn('Supabase document insert warning:', error.message);
+          } else if (data && data[0]?.id) {
+            const dbId = data[0].id;
+            setDocuments((prev) => {
+              const synced = prev.map((d) => (d.id === newDoc.id ? { ...d, id: dbId } : d));
+              storageService.saveDocuments(synced);
+              return synced;
+            });
+          }
+        });
+    }
   };
 
   const deleteDocument = (id: string): boolean => {
@@ -263,40 +360,84 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (previewDoc?.id === id) {
       setPreviewDoc(null);
     }
+
+    if (isSupabaseConfigured) {
+      if (target.storagePath) {
+        deleteAcademicFile(target.storagePath);
+      }
+      supabase
+        .from('documents')
+        .delete()
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase document delete warning:', error.message);
+        });
+    }
     return true;
   };
 
-  const downloadDocument = (doc: { title: string; fileName?: string; fileUrl: string; fileSize?: string; category?: string; subjectCode?: string }) => {
+  const downloadDocument = async (doc: {
+    title: string;
+    fileName?: string;
+    fileUrl: string;
+    fileSize?: string;
+    category?: string;
+    subjectCode?: string;
+  }) => {
     // Increment download count if matching document exists
     setDocuments((prev) => {
-      const updated = prev.map((d) => (d.title === doc.title ? { ...d, downloadCount: d.downloadCount + 1 } : d));
+      const updated = prev.map((d) =>
+        d.title === doc.title ? { ...d, downloadCount: (d.downloadCount || 0) + 1 } : d
+      );
       storageService.saveDocuments(updated);
       return updated;
     });
 
-    let url = doc.fileUrl;
-    if (!url.startsWith('data:') && !url.startsWith('blob:')) {
-      const mockContent = `ELCIVILO | CIVIL ENGINEERING ACADEMIC PORTAL
-============================================================
-DOCUMENT : ${doc.title}
-CATEGORY : ${(doc.category || 'ACADEMIC RESOURCE').toUpperCase()}
-CODE     : ${doc.subjectCode || 'IS STANDARD'}
-============================================================
-Official study resource provided for Civil Engineering students.
-Conforms to relevant university curriculum and Bureau of Indian Standards (BIS).
-`;
-      const blob = new Blob([mockContent], { type: 'text/plain' });
-      url = URL.createObjectURL(blob);
+    const safeName =
+      doc.fileName || `${doc.title.replace(/[^a-zA-Z0-9._-]/g, '_')}.pdf`;
+
+    if (!doc.fileUrl) {
+      showToast('Document file URL is not available.', 'error');
+      return;
     }
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = doc.fileName || `${doc.title.replace(/\s+/g, '_')}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    // 1. If it's already a local blob: or data: URL, download immediately
+    if (doc.fileUrl.startsWith('blob:') || doc.fileUrl.startsWith('data:')) {
+      const a = document.createElement('a');
+      a.href = doc.fileUrl;
+      a.download = safeName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast(`Downloaded "${safeName}"`, 'success');
+      return;
+    }
 
-    showToast(`Downloaded "${doc.fileName || doc.title}"`, 'success');
+    // 2. Real remote file (e.g. Supabase Storage or external HTTPS URL)
+    // Fetch as blob to enforce download filename across origins
+    try {
+      showToast(`Preparing download for "${safeName}"...`, 'info');
+      const response = await fetch(doc.fileUrl, { mode: 'cors' });
+      if (response.ok) {
+        const fileBlob = await response.blob();
+        const blobUrl = URL.createObjectURL(fileBlob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = safeName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 20000);
+        showToast(`Downloaded "${safeName}"`, 'success');
+        return;
+      }
+    } catch (err) {
+      console.warn('Cross-origin direct blob download failed, falling back to direct window open:', err);
+    }
+
+    // 3. Fallback: Open original file directly in new window
+    window.open(doc.fileUrl, '_blank', 'noopener,noreferrer');
+    showToast(`Opened "${safeName}" in new tab`, 'info');
   };
 
   // Assignments

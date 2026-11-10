@@ -83,7 +83,7 @@ export const AdminUpload: React.FC = () => {
 
     try {
       // 1. Upload to Supabase Storage bucket with real-time streaming progress
-      const { publicUrl } = await uploadAcademicFile(selectedFile, category, (progress) => {
+      const { publicUrl, storagePath } = await uploadAcademicFile(selectedFile, category, (progress) => {
         setUploadPercent(progress.percent);
         setUploadSpeed(progress.speedText);
         const loadedMb = (progress.loadedBytes / (1024 * 1024)).toFixed(1);
@@ -124,6 +124,7 @@ export const AdminUpload: React.FC = () => {
         examType: category === 'question_paper' ? examType : undefined,
         examYear: category === 'question_paper' ? examYear : undefined,
         supplyCategory: category === 'supply' ? supplyCategory : undefined,
+        storagePath,
         uploadedBy: 'Dr. Doom (HOD)',
         isBookmarked: false,
       });
