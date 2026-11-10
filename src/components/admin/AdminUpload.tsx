@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   UploadCloud,
   CheckCircle2,
   Database,
+  ShieldAlert,
+  AlertTriangle,
 } from 'lucide-react';
 import { usePortal } from '../../context/PortalContext';
-import { uploadAcademicFile } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import { uploadAcademicFile, deleteAcademicFile, isSupabaseConfigured } from '../../lib/supabase';
 import { DocumentCategory, NoteUnit, ExamType, SupplyCategory } from '../../types';
 import { Button } from '../common/Button';
 
 export const AdminUpload: React.FC = () => {
   const { subjects, addDocument, showToast } = usePortal();
+  const { hasSupabaseAuth } = useAuth();
   const navigate = useNavigate();
 
   const [category, setCategory] = useState<DocumentCategory>('notes');
@@ -65,6 +69,11 @@ export const AdminUpload: React.FC = () => {
       return;
     }
 
+    if (isSupabaseConfigured && !hasSupabaseAuth) {
+      showToast('Authentication required: Sign into Supabase Auth with your administrator account before uploading.', 'error');
+      return;
+    }
+
     const isSyllabus = category === 'syllabus';
     const currentSubject = isSyllabus
       ? null
@@ -81,6 +90,8 @@ export const AdminUpload: React.FC = () => {
     setBytesProgress('');
     setUploadProgressMsg('Initializing streaming upload to Supabase...');
 
+    let uploadedStoragePath: string | undefined;
+
     try {
       // 1. Upload to Supabase Storage bucket with real-time streaming progress
       const { publicUrl, storagePath } = await uploadAcademicFile(selectedFile, category, (progress) => {
@@ -96,7 +107,8 @@ export const AdminUpload: React.FC = () => {
         }
       });
 
-      setUploadProgressMsg('Writing document record to academic repository...');
+      uploadedStoragePath = storagePath;
+      setUploadProgressMsg('Writing document record to Supabase database...');
 
       const computedUnit =
         selectedModule === 'custom'
@@ -107,8 +119,8 @@ export const AdminUpload: React.FC = () => {
               ? `${selectedModule} - ${selectedPart}`
               : selectedModule;
 
-      // 2. Add document record to database/context
-      addDocument({
+      // 2. Add document record to Supabase database (and state)
+      await addDocument({
         title: title.trim(),
         fileName: selectedFile.name,
         fileUrl: publicUrl,
@@ -133,6 +145,10 @@ export const AdminUpload: React.FC = () => {
       navigate('/admin/manage');
     } catch (err: any) {
       console.error('Upload failure:', err);
+      // Clean up orphaned storage file if database record failed
+      if (uploadedStoragePath) {
+        deleteAcademicFile(uploadedStoragePath).catch(() => {});
+      }
       showToast(err.message || 'File upload failed. Please try again.', 'error');
     } finally {
       setIsUploading(false);
@@ -165,6 +181,28 @@ export const AdminUpload: React.FC = () => {
 
       {/* Upload Form Card */}
       <div className="bg-white dark:bg-concrete-900 border border-concrete-300 dark:border-concrete-800 rounded-3xl p-7 sm:p-10 shadow-sm">
+        {isSupabaseConfigured && !hasSupabaseAuth && (
+          <div className="mb-6 p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-safety shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-amber-900 dark:text-amber-300">
+                  Supabase Authentication Required
+                </h3>
+                <p className="text-xs text-concrete-600 dark:text-concrete-400 font-sans">
+                  You are currently in Demo Mode. Supabase Row Level Security (RLS) requires an authenticated administrator session to persist uploads to the cloud database and vault.
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/admin/login"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-concrete-900 text-white dark:bg-concrete-100 dark:text-concrete-900 text-xs font-mono font-bold hover:bg-blueprint-600 dark:hover:bg-blueprint-400 transition-colors shrink-0"
+            >
+              Sign into Supabase →
+            </Link>
+          </div>
+        )}
+
         <form onSubmit={handleUploadSubmit} className="space-y-6">
           {/* Top Row: Category & Semester */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

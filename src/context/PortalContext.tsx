@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   AcademicDocument,
   AcademicNotification,
@@ -16,6 +16,78 @@ export interface ToastMessage {
   id: string;
   type: 'success' | 'error' | 'info';
   message: string;
+}
+
+/**
+ * Maps a snake_case Supabase document record to a camelCase AcademicDocument
+ */
+export function mapSupabaseDocToAcademicDoc(row: any): AcademicDocument {
+  const fileName =
+    (row.storage_path ? row.storage_path.split('/').pop() : '') ||
+    (row.file_url ? decodeURIComponent(row.file_url.split('/').pop()?.split('?')[0] || '') : '') ||
+    `${row.title || 'Document'}.pdf`;
+
+  return {
+    id: String(row.id),
+    title: row.title || 'Untitled Document',
+    fileName,
+    description: row.description || '',
+    category: (row.category || 'notes') as DocumentCategory,
+    semester: Number(row.semester) || 1,
+    subjectId: row.subject_id || '',
+    subjectCode: row.subject_code || 'CE',
+    subjectName: row.subject_name || 'Civil Engineering',
+    unit: row.unit || undefined,
+    topic: row.topic || undefined,
+    examType: row.exam_type || undefined,
+    examYear: row.exam_year ? Number(row.exam_year) : undefined,
+    supplyCategory: row.supply_category || undefined,
+    fileUrl: row.file_url || '',
+    fileSize: row.file_size || 'Unknown',
+    fileType: (row.file_type || 'PDF').toLowerCase(),
+    storagePath: row.storage_path || undefined,
+    downloadCount: Number(row.download_count) || 0,
+    uploadedAt: row.created_at || new Date().toISOString(),
+    uploadedBy: 'Civil Faculty / Admin',
+    uploaderRole: 'admin',
+    isBookmarked: false,
+  };
+}
+
+/**
+ * Maps a camelCase AcademicDocument to a snake_case Supabase document record for insertion
+ */
+export function mapAcademicDocToSupabaseRow(
+  doc: Omit<AcademicDocument, 'id' | 'uploadedAt' | 'downloadCount'>,
+  userId?: string
+) {
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(doc.subjectId || '');
+
+  // Normalize category to allowed enum in database
+  let validCategory: 'syllabus' | 'notes' | 'question_paper' | 'supply' = 'notes';
+  if (['syllabus', 'notes', 'question_paper', 'supply'].includes(doc.category)) {
+    validCategory = doc.category as any;
+  }
+
+  return {
+    title: doc.title.trim(),
+    description: doc.description ? doc.description.trim() : null,
+    category: validCategory,
+    semester: Math.max(1, Math.min(8, Number(doc.semester) || 1)),
+    subject_id: isUuid ? doc.subjectId : null,
+    subject_code: doc.subjectCode || 'CE',
+    subject_name: doc.subjectName || 'Civil Engineering',
+    unit: doc.unit ? doc.unit.trim() : null,
+    exam_type: doc.examType || null,
+    exam_year: doc.examYear ? Number(doc.examYear) : null,
+    supply_category: doc.supplyCategory || null,
+    file_url: doc.fileUrl,
+    file_size: doc.fileSize || 'Unknown',
+    file_type: (doc.fileType || 'PDF').toUpperCase(),
+    storage_path: doc.storagePath || null,
+    download_count: 0,
+    created_by: userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId) ? userId : null,
+  };
 }
 
 interface PortalContextType {
@@ -37,8 +109,11 @@ interface PortalContextType {
 
   // Documents
   documents: AcademicDocument[];
-  addDocument: (doc: Omit<AcademicDocument, 'id' | 'uploadedAt' | 'downloadCount'>) => void;
-  deleteDocument: (id: string) => boolean;
+  isDocumentsLoading: boolean;
+  refreshDocuments: () => Promise<void>;
+  migrateLocalStorageDocuments: () => Promise<{ migratedCount: number; skippedCount: number; errors: string[] }>;
+  addDocument: (doc: Omit<AcademicDocument, 'id' | 'uploadedAt' | 'downloadCount'>) => Promise<AcademicDocument>;
+  deleteDocument: (id: string) => Promise<boolean>;
   downloadDocument: (doc: { title: string; fileName?: string; fileUrl: string; fileSize?: string; category?: string; subjectCode?: string }) => void;
   getDocumentsBySubject: (subjectId: string, category?: DocumentCategory) => AcademicDocument[];
   toggleBookmark: (docId: string) => void;
@@ -105,6 +180,7 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [subjects, setSubjects] = useState<Subject[]>(() => storageService.getSubjects());
   const [documents, setDocuments] = useState<AcademicDocument[]>(() => storageService.getDocuments());
+  const [isDocumentsLoading, setIsDocumentsLoading] = useState<boolean>(true);
   const [assignments, setAssignments] = useState<Assignment[]>(() => storageService.getAssignments());
   const [notifications, setNotifications] = useState<AcademicNotification[]>(() => storageService.getNotifications());
   const [referenceCodes, setReferenceCodes] = useState<ReferenceCode[]>(() => storageService.getReferenceCodes());
@@ -120,58 +196,55 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Toasts state
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Synchronize documents from Supabase database if configured
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-
-    let isMounted = true;
-
-    async function syncDocumentsFromSupabase() {
-      try {
-        const { data: dbDocs, error } = await supabase
-          .from('documents')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (!error && dbDocs && dbDocs.length > 0 && isMounted) {
-          const mappedDocs: AcademicDocument[] = dbDocs.map((row: any) => ({
-            id: row.id,
-            title: row.title,
-            fileName: row.file_name || (row.storage_path ? row.storage_path.split('/').pop() : `${row.title}.pdf`),
-            description: row.description || '',
-            category: row.category as DocumentCategory,
-            semester: row.semester,
-            subjectId: row.subject_id || '',
-            subjectCode: row.subject_code,
-            subjectName: row.subject_name,
-            unit: row.unit,
-            examType: row.exam_type,
-            examYear: row.exam_year,
-            supplyCategory: row.supply_category,
-            fileUrl: row.file_url,
-            fileSize: row.file_size || 'Unknown',
-            fileType: (row.file_type || 'pdf').toLowerCase(),
-            storagePath: row.storage_path,
-            downloadCount: row.download_count || 0,
-            uploadedAt: row.created_at,
-            uploadedBy: 'Civil Faculty / Admin',
-            isBookmarked: false,
-          }));
-
-          setDocuments(mappedDocs);
-          storageService.saveDocuments(mappedDocs);
-        }
-      } catch (err) {
-        console.warn('Supabase document retrieval notice:', err);
-      }
+  // Public retrieval of documents from Supabase database (source of truth)
+  const fetchDocumentsFromSupabase = useCallback(async () => {
+    if (!isSupabaseConfigured) {
+      setIsDocumentsLoading(false);
+      return;
     }
 
-    syncDocumentsFromSupabase();
+    try {
+      const { data: dbDocs, error } = await supabase
+        .from('documents')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Supabase document retrieval notice:', error.message);
+      } else if (dbDocs) {
+        const mappedDocs: AcademicDocument[] = dbDocs.map(mapSupabaseDocToAcademicDoc);
+        setDocuments(mappedDocs);
+        storageService.saveDocuments(mappedDocs);
+      }
+    } catch (err) {
+      console.warn('Supabase document fetch exception:', err);
+    } finally {
+      setIsDocumentsLoading(false);
+    }
+  }, []);
+
+  // Fetch documents on mount & subscribe to realtime Postgres changes
+  useEffect(() => {
+    fetchDocumentsFromSupabase();
+
+    if (!isSupabaseConfigured) return;
+
+    // Realtime channel: automatically updates document list for all connected visitors whenever changes happen
+    const channel = supabase
+      .channel('public:documents:realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'documents' },
+        () => {
+          fetchDocumentsFromSupabase();
+        }
+      )
+      .subscribe();
 
     return () => {
-      isMounted = false;
+      supabase.removeChannel(channel);
     };
-  }, []);
+  }, [fetchDocumentsFromSupabase]);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -290,66 +363,85 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
-  const addDocument = (docData: Omit<AcademicDocument, 'id' | 'uploadedAt' | 'downloadCount'>) => {
-    const newDoc: AcademicDocument = {
-      ...docData,
-      id: `doc_${Date.now()}`,
-      uploadedAt: new Date().toISOString(),
-      downloadCount: 0,
-    };
-    const updated = [newDoc, ...documents];
-    setDocuments(updated);
-    storageService.saveDocuments(updated);
-    storageService.addAuditLog('Uploaded Document', newDoc.title, user?.name || 'Admin', `Category: ${newDoc.category}`);
-    setAuditLogs(storageService.getAuditLogs());
-    showToast(`"${newDoc.title}" uploaded successfully!`, 'success');
-
-    // Persist to Supabase database if configured
+  const addDocument = async (
+    docData: Omit<AcademicDocument, 'id' | 'uploadedAt' | 'downloadCount'>
+  ): Promise<AcademicDocument> => {
+    // 1. If Supabase is configured, enforce server-enforced authenticated insertion
     if (isSupabaseConfigured) {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(newDoc.subjectId);
-      supabase
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
+
+      if (!session) {
+        throw new Error(
+          'Authentication required: You must be logged into Supabase Auth with an administrator account to save documents to the database. Demo session cannot write to live Supabase RLS.'
+        );
+      }
+
+      const payload = mapAcademicDocToSupabaseRow(docData, session.user.id);
+      const { data, error } = await supabase
         .from('documents')
-        .insert({
-          title: newDoc.title,
-          description: newDoc.description || null,
-          category: newDoc.category,
-          semester: newDoc.semester,
-          subject_id: isUuid ? newDoc.subjectId : null,
-          subject_code: newDoc.subjectCode,
-          subject_name: newDoc.subjectName,
-          unit: newDoc.unit || null,
-          exam_type: newDoc.examType || null,
-          exam_year: newDoc.examYear || null,
-          supply_category: newDoc.supplyCategory || null,
-          file_url: newDoc.fileUrl,
-          file_size: newDoc.fileSize,
-          file_type: (newDoc.fileType || 'PDF').toUpperCase(),
-          storage_path: newDoc.storagePath || null,
-          download_count: 0,
-        })
-        .select('id')
-        .then(({ data, error }) => {
-          if (error) {
-            console.warn('Supabase document insert warning:', error.message);
-          } else if (data && data[0]?.id) {
-            const dbId = data[0].id;
-            setDocuments((prev) => {
-              const synced = prev.map((d) => (d.id === newDoc.id ? { ...d, id: dbId } : d));
-              storageService.saveDocuments(synced);
-              return synced;
-            });
-          }
-        });
+        .insert(payload)
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('Supabase document insert error:', error);
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      const savedDoc = mapSupabaseDocToAcademicDoc(data);
+
+      setDocuments((prev) => [savedDoc, ...prev.filter((d) => d.id !== savedDoc.id)]);
+      storageService.saveDocuments([savedDoc, ...documents.filter((d) => d.id !== savedDoc.id)]);
+      storageService.addAuditLog('Uploaded Document', savedDoc.title, user?.name || 'Admin', `Category: ${savedDoc.category}`);
+      setAuditLogs(storageService.getAuditLogs());
+      showToast(`"${savedDoc.title}" uploaded and published successfully!`, 'success');
+
+      return savedDoc;
+    } else {
+      // Standalone / offline fallback
+      const newDoc: AcademicDocument = {
+        ...docData,
+        id: `doc_${Date.now()}`,
+        uploadedAt: new Date().toISOString(),
+        downloadCount: 0,
+      };
+      const updated = [newDoc, ...documents];
+      setDocuments(updated);
+      storageService.saveDocuments(updated);
+      storageService.addAuditLog('Uploaded Document', newDoc.title, user?.name || 'Admin', `Category: ${newDoc.category}`);
+      setAuditLogs(storageService.getAuditLogs());
+      showToast(`"${newDoc.title}" saved locally.`, 'success');
+      return newDoc;
     }
   };
 
-  const deleteDocument = (id: string): boolean => {
+  const deleteDocument = async (id: string): Promise<boolean> => {
     if (!isAdmin) {
       showToast('Admin privilege required.', 'error');
       return false;
     }
     const target = documents.find((d) => d.id === id);
     if (!target) return false;
+
+    if (isSupabaseConfigured) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        showToast('Authentication required: Sign into Supabase Auth to delete records from the live database.', 'error');
+        return false;
+      }
+
+      const { error } = await supabase.from('documents').delete().eq('id', id);
+      if (error) {
+        console.error('Supabase document delete error:', error);
+        showToast(`Delete failed: ${error.message}`, 'error');
+        return false;
+      }
+
+      if (target.storagePath) {
+        await deleteAcademicFile(target.storagePath);
+      }
+    }
 
     const updated = documents.filter((d) => d.id !== id);
     setDocuments(updated);
@@ -360,20 +452,95 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (previewDoc?.id === id) {
       setPreviewDoc(null);
     }
-
-    if (isSupabaseConfigured) {
-      if (target.storagePath) {
-        deleteAcademicFile(target.storagePath);
-      }
-      supabase
-        .from('documents')
-        .delete()
-        .eq('id', id)
-        .then(({ error }) => {
-          if (error) console.warn('Supabase document delete warning:', error.message);
-        });
-    }
     return true;
+  };
+
+  const migrateLocalStorageDocuments = async (): Promise<{
+    migratedCount: number;
+    skippedCount: number;
+    errors: string[];
+  }> => {
+    if (!isSupabaseConfigured) {
+      return { migratedCount: 0, skippedCount: 0, errors: ['Supabase is not configured.'] };
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData.session;
+    if (!session) {
+      return {
+        migratedCount: 0,
+        skippedCount: 0,
+        errors: ['Authentication required: Sign into Supabase Auth as Admin before migrating documents.'],
+      };
+    }
+
+    const localDocs = storageService.getMigratableDocuments();
+    if (localDocs.length === 0) {
+      return { migratedCount: 0, skippedCount: 0, errors: [] };
+    }
+
+    // Query existing records to prevent duplicate insertion
+    const { data: remoteDocs, error: fetchError } = await supabase
+      .from('documents')
+      .select('id, title, file_url, storage_path, semester, subject_code');
+
+    if (fetchError) {
+      return { migratedCount: 0, skippedCount: 0, errors: [fetchError.message] };
+    }
+
+    const existingUrls = new Set((remoteDocs || []).map((d) => d.file_url).filter(Boolean));
+    const existingPaths = new Set((remoteDocs || []).map((d) => d.storage_path).filter(Boolean));
+    const existingSignatures = new Set(
+      (remoteDocs || []).map(
+        (d) => `${(d.title || '').trim().toLowerCase()}__${d.semester}__${(d.subject_code || '').trim().toLowerCase()}`
+      )
+    );
+
+    let migratedCount = 0;
+    let skippedCount = 0;
+    const errors: string[] = [];
+    const insertedDocs: AcademicDocument[] = [];
+
+    for (const doc of localDocs) {
+      const sig = `${(doc.title || '').trim().toLowerCase()}__${doc.semester}__${(doc.subjectCode || '').trim().toLowerCase()}`;
+      if (
+        (doc.fileUrl && existingUrls.has(doc.fileUrl)) ||
+        (doc.storagePath && existingPaths.has(doc.storagePath)) ||
+        existingSignatures.has(sig)
+      ) {
+        skippedCount++;
+        continue;
+      }
+
+      try {
+        const payload = mapAcademicDocToSupabaseRow(doc, session.user.id);
+        const { data, error: insertError } = await supabase
+          .from('documents')
+          .insert(payload)
+          .select('*')
+          .single();
+
+        if (insertError) {
+          errors.push(`"${doc.title}": ${insertError.message}`);
+        } else if (data) {
+          migratedCount++;
+          existingUrls.add(doc.fileUrl);
+          if (doc.storagePath) existingPaths.add(doc.storagePath);
+          existingSignatures.add(sig);
+          insertedDocs.push(mapSupabaseDocToAcademicDoc(data));
+        }
+      } catch (err: any) {
+        errors.push(`"${doc.title}": ${err.message || 'Error inserting row'}`);
+      }
+    }
+
+    if (insertedDocs.length > 0) {
+      setDocuments((prev) => [...insertedDocs, ...prev]);
+      storageService.saveDocuments([...insertedDocs, ...documents]);
+      showToast(`Migrated ${migratedCount} document(s) to Supabase database.`, 'success');
+    }
+
+    return { migratedCount, skippedCount, errors };
   };
 
   const downloadDocument = async (doc: {
@@ -601,6 +768,9 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         getSubjectById,
         getSubjectsBySemester,
         documents,
+        isDocumentsLoading,
+        refreshDocuments: fetchDocumentsFromSupabase,
+        migrateLocalStorageDocuments,
         addDocument,
         deleteDocument,
         downloadDocument,

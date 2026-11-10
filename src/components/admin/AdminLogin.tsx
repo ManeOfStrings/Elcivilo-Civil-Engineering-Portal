@@ -15,33 +15,51 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { Button } from '../common/Button';
 
 export const AdminLogin: React.FC = () => {
-  const { loginAsAdmin } = useAuth();
+  const { loginAsAdmin, registerAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const redirectPath = (location.state as any)?.from?.pathname || '/admin/dashboard';
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
     setIsSubmitting(true);
 
-    const res = await loginAsAdmin(email.trim(), password);
-    setIsSubmitting(false);
-
-    if (res.success) {
-      navigate(redirectPath, { replace: true });
+    if (mode === 'register') {
+      const res = await registerAdmin(email.trim(), password, name.trim());
+      setIsSubmitting(false);
+      if (res.success) {
+        setSuccessMsg('Account created successfully! Logging you into Admin Portal...');
+        setTimeout(() => {
+          navigate(redirectPath, { replace: true });
+        }, 1200);
+      } else {
+        setErrorMsg(res.error || 'Failed to register admin account.');
+      }
     } else {
-      setErrorMsg(res.error || 'Failed to authenticate. Please verify your credentials.');
+      const res = await loginAsAdmin(email.trim(), password);
+      setIsSubmitting(false);
+
+      if (res.success) {
+        navigate(redirectPath, { replace: true });
+      } else {
+        setErrorMsg(res.error || 'Failed to authenticate. Please verify your credentials.');
+      }
     }
   };
 
   const handleQuickDemo = () => {
+    setMode('login');
     setEmail('admin@civilportal.edu');
     setPassword('admin123');
   };
@@ -108,6 +126,48 @@ export const AdminLogin: React.FC = () => {
             </span>
           </div>
 
+          {/* Mode Selector Tabs */}
+          <div className="flex rounded-2xl bg-concrete-950/70 p-1 border border-concrete-800 text-xs font-mono">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login');
+                setErrorMsg('');
+                setSuccessMsg('');
+              }}
+              className={`flex-1 py-2 rounded-xl font-bold transition-all ${
+                mode === 'login'
+                  ? 'bg-safety text-concrete-950 shadow-sm'
+                  : 'text-concrete-400 hover:text-white'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('register');
+                setErrorMsg('');
+                setSuccessMsg('');
+              }}
+              className={`flex-1 py-2 rounded-xl font-bold transition-all ${
+                mode === 'register'
+                  ? 'bg-safety text-concrete-950 shadow-sm'
+                  : 'text-concrete-400 hover:text-white'
+              }`}
+            >
+              Register Admin
+            </button>
+          </div>
+
+          {/* Success Message */}
+          {successMsg && (
+            <div className="p-4 rounded-2xl bg-emerald-950/60 border border-emerald-800/80 text-emerald-300 text-xs font-mono flex items-start gap-2.5 animate-in fade-in">
+              <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-emerald-400" />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
           {/* Error Message */}
           {errorMsg && (
             <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-800/80 text-rose-300 text-xs font-mono flex items-start gap-2.5 animate-in fade-in">
@@ -116,8 +176,25 @@ export const AdminLogin: React.FC = () => {
             </div>
           )}
 
-          {/* Login Form */}
-          <form onSubmit={handleLogin} className="space-y-4">
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === 'register' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-mono font-bold text-concrete-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Mail className="h-3.5 w-3.5 text-blueprint-400" />
+                  Full Name & Designation
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Dr. Doom (HOD Civil)"
+                  className="w-full px-4 py-3 rounded-2xl border border-concrete-700 bg-concrete-800/80 text-white placeholder-concrete-500 text-sm font-sans focus:outline-none focus:ring-2 focus:ring-safety focus:border-safety transition-all shadow-inner"
+                />
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <label className="text-xs font-mono font-bold text-concrete-300 uppercase tracking-wider flex items-center gap-1.5">
                 <Mail className="h-3.5 w-3.5 text-blueprint-400" />
@@ -156,7 +233,13 @@ export const AdminLogin: React.FC = () => {
               disabled={isSubmitting}
               icon={<ArrowRight className="h-5 w-5" />}
             >
-              {isSubmitting ? 'Authenticating Admin...' : 'Authenticate & Enter Dashboard'}
+              {isSubmitting
+                ? mode === 'register'
+                  ? 'Registering Supabase Admin...'
+                  : 'Authenticating Admin...'
+                : mode === 'register'
+                ? 'Create Supabase Admin Account'
+                : 'Authenticate & Enter Dashboard'}
             </Button>
           </form>
 

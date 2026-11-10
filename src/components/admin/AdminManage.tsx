@@ -15,6 +15,8 @@ import {
   Download,
   Edit3,
   X,
+  RefreshCw,
+  Database,
 } from 'lucide-react';
 import { usePortal } from '../../context/PortalContext';
 import { Button } from '../common/Button';
@@ -59,6 +61,9 @@ export const AdminManage: React.FC = () => {
     deleteDocument,
     openPreview,
     downloadDocument,
+    migrateLocalStorageDocuments,
+    refreshDocuments,
+    isDocumentsLoading,
     notifications,
     addNotification,
     deleteNotification,
@@ -78,6 +83,25 @@ export const AdminManage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'documents' | 'subjects' | 'notifications' | 'assignments' | 'codes'>('documents');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [isMigrating, setIsMigrating] = useState(false);
+
+  const handleMigrate = async () => {
+    setIsMigrating(true);
+    try {
+      const res = await migrateLocalStorageDocuments();
+      if (res.errors.length > 0) {
+        showToast(`Migration partially completed: ${res.migratedCount} uploaded, ${res.errors.length} failed. (${res.errors[0]})`, 'error');
+      } else if (res.migratedCount > 0) {
+        showToast(`Successfully migrated ${res.migratedCount} local document(s) to Supabase database!`, 'success');
+      } else {
+        showToast(`All local documents are already synchronized with Supabase (${res.skippedCount} matched).`, 'info');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Migration failed.', 'error');
+    } finally {
+      setIsMigrating(false);
+    }
+  };
 
   // Subjects Tab State
   const [subjectSemFilter, setSubjectSemFilter] = useState<number | 'all'>('all');
@@ -460,6 +484,43 @@ export const AdminManage: React.FC = () => {
       {/* Tab 1: Documents Management */}
       {activeTab === 'documents' && (
         <div className="space-y-6">
+          {/* Supabase Cloud Sync & Migration Card */}
+          <div className="p-6 rounded-3xl bg-blueprint-900/10 dark:bg-blueprint-950/40 border border-blueprint-300 dark:border-blueprint-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-mono font-bold text-blueprint-700 dark:text-blueprint-300">
+                <Database className="h-4 w-4 text-blueprint-500" />
+                <span>SUPABASE CLOUD DATABASE SYNC</span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 text-[10px]">
+                  {isDocumentsLoading ? 'Loading records...' : `${documents.length} live records`}
+                </span>
+              </div>
+              <p className="text-xs text-concrete-600 dark:text-concrete-400 font-sans max-w-2xl">
+                All visitors load curriculum documents directly from the Supabase <code className="font-mono text-blueprint-600 dark:text-blueprint-400">documents</code> table. If you previously uploaded files that are stored only in this browser, click below to migrate their metadata to Supabase.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => refreshDocuments()}
+                disabled={isDocumentsLoading}
+                className="px-3 py-2 rounded-xl border border-concrete-300 dark:border-concrete-700 hover:bg-concrete-100 dark:hover:bg-concrete-800 text-xs font-mono font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Refresh from Supabase"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isDocumentsLoading ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleMigrate}
+                disabled={isMigrating}
+                className="px-4 py-2 rounded-xl bg-blueprint-700 hover:bg-blueprint-800 text-white text-xs font-mono font-bold flex items-center gap-2 transition-colors cursor-pointer shadow-sm disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isMigrating ? 'animate-spin' : ''}`} />
+                <span>{isMigrating ? 'Migrating...' : 'Migrate Local Docs to Cloud'}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Filter Bar */}
           <div className="bg-white dark:bg-concrete-900 p-5 rounded-3xl border border-concrete-300 dark:border-concrete-800 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
@@ -542,9 +603,9 @@ export const AdminManage: React.FC = () => {
                             <Eye className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               if (window.confirm(`Delete document "${doc.title}"?`)) {
-                                deleteDocument(doc.id);
+                                await deleteDocument(doc.id);
                               }
                             }}
                             className="p-1.5 text-concrete-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30"

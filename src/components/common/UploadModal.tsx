@@ -206,6 +206,8 @@ export const UploadModal: React.FC = () => {
         uploadedBy: user.name,
         uploaderRole: role,
         isBookmarked: false,
+      }).catch((err) => {
+        setErrorMsg(err.message || 'Upload failed');
       });
 
       setIsUploading(false);

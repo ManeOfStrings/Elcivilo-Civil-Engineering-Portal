@@ -87,12 +87,33 @@ export const storageService = {
   },
 
   getDocuments(): AcademicDocument[] {
-    const data = localStorage.getItem(KEYS.DOCUMENTS);
-    return data ? JSON.parse(data) : initialDocuments;
+    try {
+      const data = localStorage.getItem(KEYS.DOCUMENTS);
+      return data ? JSON.parse(data) : initialDocuments;
+    } catch {
+      return initialDocuments;
+    }
   },
 
   saveDocuments(docs: AcademicDocument[]): void {
-    localStorage.setItem(KEYS.DOCUMENTS, JSON.stringify(docs));
+    try {
+      localStorage.setItem(KEYS.DOCUMENTS, JSON.stringify(docs));
+    } catch (err) {
+      console.warn('Could not cache documents to localStorage:', err);
+    }
+  },
+
+  getMigratableDocuments(): AcademicDocument[] {
+    try {
+      const data = localStorage.getItem(KEYS.DOCUMENTS);
+      if (!data) return [];
+      const parsed: AcademicDocument[] = JSON.parse(data);
+      return parsed.filter(
+        (d) => d.fileUrl && !d.fileUrl.startsWith('blob:') && !d.fileUrl.startsWith('data:')
+      );
+    } catch {
+      return [];
+    }
   },
 
   getNotifications(): AcademicNotification[] {
