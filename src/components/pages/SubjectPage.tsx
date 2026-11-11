@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Download,
@@ -15,23 +15,48 @@ import { usePortal } from '../../context/PortalContext';
 import { AcademicDocument, Assignment } from '../../types';
 import { formatDate } from '../../utils/formatters';
 
-type TabKey = 'notes' | 'textbooks' | 'assignments' | 'pyq' | 'syllabus';
+type TabKey = 'notes' | 'pyq' | 'syllabus' | 'textbooks' | 'assignments';
 
 export const SubjectPage: React.FC = () => {
   const { semId, subjectId } = useParams<{ semId: string; subjectId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     getSubjectById,
     getDocumentsBySubject,
     getAssignmentsBySubject,
     openPreview,
     downloadDocument,
+    documents,
   } = usePortal();
 
   const semesterNum = Number(semId) || 1;
   const subject = getSubjectById(subjectId || '');
 
-  const [activeTab, setActiveTab] = useState<TabKey>('notes');
+  const queryTab = searchParams.get('tab') as TabKey | null;
+  const validTabs: TabKey[] = ['notes', 'pyq', 'syllabus', 'textbooks', 'assignments'];
+  const initialTab: TabKey = queryTab && validTabs.includes(queryTab) ? queryTab : 'notes';
+
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>({});
+
+  // Sync tab with URL search parameter if updated externally
+  useEffect(() => {
+    if (queryTab && validTabs.includes(queryTab) && queryTab !== activeTab) {
+      setActiveTab(queryTab);
+    }
+  }, [queryTab]);
+
+  const handleTabChange = (tab: TabKey) => {
+    setActiveTab(tab);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', tab);
+        return next;
+      },
+      { replace: true }
+    );
+  };
 
   const allDocs = useMemo(() => (subject ? getDocumentsBySubject(subject.id) : []), [getDocumentsBySubject, subject]);
   const assignments = useMemo(() => (subject ? getAssignmentsBySubject(subject.id) : []), [getAssignmentsBySubject, subject]);
@@ -65,6 +90,9 @@ export const SubjectPage: React.FC = () => {
   const textbooks = allDocs.filter((d) => d.category === 'textbook');
   const pyqs = allDocs.filter((d) => d.category === 'question_paper');
   const syllabi = allDocs.filter((d) => d.category === 'syllabus');
+  const semSyllabi = useMemo(() => {
+    return documents.filter((d) => Number(d.semester) === semesterNum && d.category === 'syllabus');
+  }, [documents, semesterNum]);
 
   // Group notes by Unit / Module for clean accordion display
   const notesByUnit = useMemo(() => {
@@ -91,7 +119,7 @@ export const SubjectPage: React.FC = () => {
             className="inline-flex items-center gap-1 text-concrete-500 hover:text-blueprint-600 transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Semester {semesterNum}</span>
+            <span>Semester {semesterNum} Subjects</span>
           </Link>
           <span className="text-concrete-300 dark:text-concrete-700">/</span>
           <span className="font-bold text-blueprint-700 dark:text-blueprint-300">{subject.code}</span>
@@ -117,28 +145,38 @@ export const SubjectPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="flex items-center gap-1.5 border-b border-concrete-300 dark:border-concrete-800 overflow-x-auto pb-1 text-xs sm:text-sm font-mono">
+      {/* Tabs Navigation: Class Notes, PYQs, Syllabus prominently first */}
+      <div className="flex items-center gap-1.5 border-b border-concrete-300 dark:border-concrete-800 overflow-x-auto pb-1 text-xs sm:text-sm font-mono scrollbar-none">
         {[
-          { id: 'notes', label: 'Class Notes', count: notes.length },
+          { id: 'notes', label: 'Class Notes', count: notes.length, icon: FileText },
+          { id: 'pyq', label: 'Question Papers (PYQs)', count: pyqs.length, icon: Calendar },
+          { id: 'syllabus', label: 'Syllabus', count: syllabi.length > 0 ? syllabi.length : semSyllabi.length, icon: BookOpen },
           { id: 'textbooks', label: 'Textbooks', count: textbooks.length },
           { id: 'assignments', label: 'Assignments', count: assignments.length },
-          { id: 'pyq', label: 'Previous Year Questions', count: pyqs.length },
-          { id: 'syllabus', label: 'Syllabus', count: syllabi.length },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as TabKey)}
-            className={`px-3.5 py-2 rounded-t-xl font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-              activeTab === tab.id
-                ? 'bg-blueprint-700 text-white shadow-xs'
-                : 'text-concrete-700 dark:text-concrete-300 hover:bg-concrete-200 dark:hover:bg-concrete-800'
-            }`}
-          >
-            <span>{tab.label}</span>
-            <span className="text-[10px] opacity-75 font-bold">({tab.count})</span>
-          </button>
-        ))}
+        ].map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id as TabKey)}
+              className={`px-3.5 py-2 rounded-t-xl font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === tab.id
+                  ? 'bg-blueprint-700 text-white shadow-xs'
+                  : 'text-concrete-700 dark:text-concrete-300 hover:bg-concrete-200 dark:hover:bg-concrete-800'
+              }`}
+            >
+              {Icon && <Icon className="w-3.5 h-3.5 opacity-80" />}
+              <span>{tab.label}</span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+                activeTab === tab.id
+                  ? 'bg-white/20 text-white'
+                  : 'bg-concrete-200 dark:bg-concrete-800 text-concrete-600 dark:text-concrete-400'
+              }`}>
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab Content Areas */}
@@ -390,11 +428,11 @@ export const SubjectPage: React.FC = () => {
         {/* 5. SYLLABUS */}
         {activeTab === 'syllabus' && (
           <div className="space-y-3">
-            {syllabi.length === 0 ? (
+            {syllabi.length === 0 && semSyllabi.length === 0 ? (
               <p className="p-8 text-center text-xs font-mono text-concrete-500 bg-white dark:bg-concrete-900 rounded-xl border border-concrete-200 dark:border-concrete-800">
-                No syllabus document found for this subject.
+                No syllabus document found for this subject or semester.
               </p>
-            ) : (
+            ) : syllabi.length > 0 ? (
               syllabi.map((doc) => (
                 <div
                   key={doc.id}
@@ -429,6 +467,55 @@ export const SubjectPage: React.FC = () => {
                   </div>
                 </div>
               ))
+            ) : (
+              <div className="space-y-3">
+                <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-mono text-emerald-800 dark:text-emerald-300">
+                    <BookOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>Official Semester {semesterNum} Curriculum Syllabus (includes {subject.code}):</span>
+                  </div>
+                </div>
+
+                {semSyllabi.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border border-concrete-300 dark:border-concrete-800 bg-white dark:bg-concrete-900"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                          CURRICULUM SYLLABUS
+                        </span>
+                        <span className="font-mono text-xs text-concrete-500">
+                          {doc.fileSize}
+                        </span>
+                      </div>
+                      <h4 className="font-heading font-bold text-sm sm:text-base text-concrete-900 dark:text-white">
+                        {doc.title}
+                      </h4>
+                      <p className="text-xs text-concrete-600 dark:text-concrete-400 font-sans">
+                        {doc.description || 'Full curriculum syllabus covering course outcomes and modules.'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => openPreview(doc)}
+                        className="px-3 py-1.5 rounded-lg bg-concrete-100 dark:bg-concrete-800 hover:bg-blueprint-100 text-xs font-mono font-semibold transition-colors cursor-pointer"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        onClick={() => downloadDocument(doc)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blueprint-700 text-white hover:bg-blueprint-800 text-xs font-mono font-semibold transition-colors cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
