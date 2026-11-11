@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
-  Plus,
   Trash2,
   Edit3,
   X,
@@ -35,7 +34,6 @@ export const SemesterPage: React.FC = () => {
     downloadDocument,
     deleteDocument,
     getSubjectsBySemester,
-    addSubject,
     updateSubject,
     deleteSubject,
     setSelectedSemester,
@@ -198,14 +196,6 @@ export const SemesterPage: React.FC = () => {
     return groups;
   }, [filteredPyqs]);
 
-  // Add Subject Modal State (for Admin)
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-  const [credits, setCredits] = useState<number>(4);
-  const [facultyName, setFacultyName] = useState('');
-  const [description, setDescription] = useState('');
-
   // Edit Subject Modal State (for Admin)
   const [editingSubject, setEditingSubject] = useState<Subject | null>(null);
   const [editCode, setEditCode] = useState('');
@@ -214,30 +204,6 @@ export const SemesterPage: React.FC = () => {
   const [editFacultyName, setEditFacultyName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editSemester, setEditSemester] = useState<number>(semesterNum);
-
-  const handleCreateSubject = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!code.trim() || !name.trim()) {
-      showToast('Please enter both subject code and subject name.', 'error');
-      return;
-    }
-
-    addSubject({
-      code: code.trim().toUpperCase(),
-      name: name.trim(),
-      semester: semesterNum,
-      credits: Number(credits) || 4,
-      facultyName: facultyName.trim() || undefined,
-      description: description.trim() || undefined,
-    });
-
-    setCode('');
-    setName('');
-    setCredits(4);
-    setFacultyName('');
-    setDescription('');
-    setIsAddModalOpen(false);
-  };
 
   const handleDeleteSubject = (e: React.MouseEvent, id: string, subjectCode: string) => {
     e.stopPropagation();
@@ -327,19 +293,6 @@ export const SemesterPage: React.FC = () => {
               </button>
             ))}
           </div>
-
-          {/* Admin Add Subject Button */}
-          {isAdmin && (
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<Plus className="w-4 h-4" />}
-              onClick={() => setIsAddModalOpen(true)}
-              className="text-xs font-mono"
-            >
-              Add Course
-            </Button>
-          )}
         </div>
       </div>
 
@@ -579,22 +532,9 @@ export const SemesterPage: React.FC = () => {
                   <p className="text-xs sm:text-sm text-concrete-500 font-sans leading-relaxed">
                     {searchQuery
                       ? `No subjects match "${searchQuery}". Clear your search query to see all subjects.`
-                      : isAdmin
-                      ? 'Click below to register courses or upload lecture notes and examination papers.'
-                      : 'Curriculum courses for this semester will appear once academic documents are uploaded.'}
+                      : 'Curriculum courses and academic materials for this semester will appear once published.'}
                   </p>
                 </div>
-
-                {isAdmin && !searchQuery && (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    icon={<Plus className="w-4 h-4" />}
-                    onClick={() => setIsAddModalOpen(true)}
-                  >
-                    Add Subject for Semester {semesterNum}
-                  </Button>
-                )}
               </div>
             )}
           </div>
@@ -913,126 +853,6 @@ export const SemesterPage: React.FC = () => {
               <span>Explore Other Semesters</span>
             </Link>
           )}
-        </div>
-      )}
-
-      {/* Admin Modal: Add New Subject */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-concrete-950/75 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg bg-white dark:bg-concrete-900 border border-concrete-300 dark:border-concrete-800 rounded-3xl shadow-2xl p-6 sm:p-8 space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-concrete-200 dark:border-concrete-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blueprint-100 dark:bg-blueprint-900 flex items-center justify-center text-blueprint-700 dark:text-blueprint-300">
-                  <Layers className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-heading font-bold text-lg text-concrete-900 dark:text-white">
-                    Add Subject
-                  </h3>
-                  <p className="text-xs font-mono text-concrete-500">Semester {semesterNum}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsAddModalOpen(false)}
-                className="p-1.5 text-concrete-400 hover:text-concrete-700 dark:hover:text-concrete-200 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateSubject} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-xs font-mono uppercase text-concrete-500 font-semibold mb-1">
-                    Course Code *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. CE-301"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-xl border border-concrete-300 dark:border-concrete-700 bg-concrete-50 dark:bg-concrete-800 text-concrete-900 dark:text-white font-mono focus:outline-none focus:border-blueprint-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-mono uppercase text-concrete-500 font-semibold mb-1">
-                    Credits *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="10"
-                    step="0.5"
-                    required
-                    value={credits}
-                    onChange={(e) => setCredits(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-sm rounded-xl border border-concrete-300 dark:border-concrete-700 bg-concrete-50 dark:bg-concrete-800 text-concrete-900 dark:text-white font-mono focus:outline-none focus:border-blueprint-600"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-mono uppercase text-concrete-500 font-semibold mb-1">
-                  Subject Full Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Structural Analysis & Design"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-concrete-300 dark:border-concrete-700 bg-concrete-50 dark:bg-concrete-800 text-concrete-900 dark:text-white font-sans focus:outline-none focus:border-blueprint-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-mono uppercase text-concrete-500 font-semibold mb-1">
-                  Faculty / Instructor Name (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Dr. Doom"
-                  value={facultyName}
-                  onChange={(e) => setFacultyName(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-concrete-300 dark:border-concrete-700 bg-concrete-50 dark:bg-concrete-800 text-concrete-900 dark:text-white font-sans focus:outline-none focus:border-blueprint-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-mono uppercase text-concrete-500 font-semibold mb-1">
-                  Description / Syllabus Outline (Optional)
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Brief course objectives and topics covered..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-concrete-300 dark:border-concrete-700 bg-concrete-50 dark:bg-concrete-800 text-concrete-900 dark:text-white font-sans focus:outline-none focus:border-blueprint-600"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-concrete-200 dark:border-concrete-800">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsAddModalOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  icon={<Plus className="w-4 h-4" />}
-                >
-                  Save Subject
-                </Button>
-              </div>
-            </form>
-          </div>
         </div>
       )}
 
