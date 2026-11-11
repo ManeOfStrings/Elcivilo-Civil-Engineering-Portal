@@ -1,11 +1,19 @@
 import React, { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Download, Eye, FileText, Search } from 'lucide-react';
 import { usePortal } from '../../context/PortalContext';
 import { formatDate } from '../../utils/formatters';
 
 export const SyllabusSection: React.FC = () => {
-  const { documents, openPreview, downloadDocument } = usePortal();
-  const [selectedSem, setSelectedSem] = useState<number | 'all'>('all');
+  const { documents, openPreview, downloadDocument, selectedSemester } = usePortal();
+  const [searchParams] = useSearchParams();
+  const semQuery = searchParams.get('sem');
+  const initialSem: number | 'all' = semQuery
+    ? Number(semQuery) || 'all'
+    : selectedSemester && selectedSemester >= 1 && selectedSemester <= 8
+    ? selectedSemester
+    : 'all';
+  const [selectedSem, setSelectedSem] = useState<number | 'all'>(initialSem);
   const [search, setSearch] = useState('');
 
   const syllabusDocs = useMemo(() => {

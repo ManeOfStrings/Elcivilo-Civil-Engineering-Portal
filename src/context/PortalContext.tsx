@@ -274,11 +274,33 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Subject helpers
   const getSubjectById = (id: string): Subject | undefined => {
-    return subjects.find(
+    const existing = subjects.find(
       (s) =>
         s.id === id ||
         s.code.replace(/\s+/g, '').toLowerCase() === id.replace(/\s+/g, '').toLowerCase()
     );
+    if (existing) return existing;
+
+    // Fallback: derive subject from documents if not explicitly added in subjects list
+    const cleanId = id.replace(/[\s-_]/g, '').toLowerCase();
+    const matchingDoc = documents.find(
+      (d) =>
+        d.subjectId === id ||
+        (d.subjectCode && d.subjectCode.replace(/[\s-_]/g, '').toLowerCase() === cleanId) ||
+        (d.subjectCode && id.includes(d.subjectCode.replace(/[^a-zA-Z0-9]/g, '_')))
+    );
+    if (matchingDoc && matchingDoc.subjectCode) {
+      return {
+        id: matchingDoc.subjectId || id,
+        code: matchingDoc.subjectCode,
+        name: matchingDoc.subjectName || matchingDoc.title,
+        semester: matchingDoc.semester,
+        credits: 4,
+        description: 'Academic curriculum course in Department of Civil Engineering.',
+      };
+    }
+
+    return undefined;
   };
 
   const getSubjectsBySemester = (sem: number): Subject[] => {
